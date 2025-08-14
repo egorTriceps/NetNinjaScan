@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: svscan
+Version: 0.1.0
+Summary: Modular security scanner (network + vulnerability) with fast, easy install.
+Author-email: SVScan Authors <maintainers@example.com>
+License: MIT
+Project-URL: Homepage, https://github.com/example/svscan
+Project-URL: Issues, https://github.com/example/svscan/issues
+Keywords: security,scanner,network,vulnerability,cli
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Security
+Classifier: Intended Audience :: System Administrators
+Classifier: Intended Audience :: Developers
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: typer>=0.12.3
+Dynamic: license-file
+
+# NetNinjaScan
+Сканер сети и уязвимостей

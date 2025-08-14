@@ -1,0 +1,34 @@
+[
+  {
+    "id": "CVE-2021-41773",
+    "service": "http",
+    "match": { "type": "header_regex", "header": "server", "pattern": "Apache/2\\.4\\.49" },
+    "severity": "high",
+    "description": "Apache HTTP Server 2.4.49 path traversal and RCE in default configs.",
+    "references": ["https://httpd.apache.org/security/vulnerabilities_24.html#CVE-2021-41773"]
+  },
+  {
+    "id": "CVE-2016-0777",
+    "service": "ssh",
+    "match": { "type": "banner_regex", "pattern": "OpenSSH_7\\.[01]" },
+    "severity": "medium",
+    "description": "OpenSSH roaming vulnerability leads to potential key leak.",
+    "references": ["https://www.openssh.com/txt/release-7.1p2"]
+  },
+  {
+    "id": "CVE-2019-10149",
+    "service": "smtp",
+    "match": { "type": "banner_regex", "pattern": "Exim 4\\.92" },
+    "severity": "high",
+    "description": "Exim 4.92 local privilege escalation via string expansion flaw.",
+    "references": ["https://nvd.nist.gov/vuln/detail/CVE-2019-10149"]
+  },
+  {
+    "id": "CVE-2011-2523",
+    "service": "ftp",
+    "match": { "type": "banner_regex", "pattern": "vsFTPd 2\\.3\\.4" },
+    "severity": "critical",
+    "description": "vsftpd 2.3.4 backdoor allows remote code execution.",
+    "references": ["https://nvd.nist.gov/vuln/detail/CVE-2011-2523"]
+  }
+]
