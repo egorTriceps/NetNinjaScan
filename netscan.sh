@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Check if required commands are installed: nmap
-REQUIRED_COMMANDS=("nmap")
+REQUIRED_COMMANDS=("nmap" "jq")
 OPTIONAL_COMMANDS=("figlet" "lolcat" "toilet" "nmcli" "iwlist" "iwconfig")
 
 for cmd in "${REQUIRED_COMMANDS[@]}"; do
@@ -24,10 +24,13 @@ NC='\033[0m' # No Color
 RESULTS_DIR="results"
 mkdir -p "$RESULTS_DIR"
 
-WEB_RESULT="Web Pages"
+WEB_RESULT="Web_Pages"
 mkdir -p "$WEB_RESULT"
 
 LOG_FILE="$RESULTS_DIR/network_scan_$(date +'%Y%m%d_%H%M%S').log"
+
+# Global variable to store raw scan data
+RAW_SCAN_DATA=""
 
 # Function to log output with timestamps
 log() {
@@ -199,13 +202,35 @@ vulnerability_scan() {
 web_vulnerability_scan() {
     local target=$1
     log "${BLUE}[*] Scanning $target for web vulnerabilities...${NC}"
-    sudo nmap -sV --script=http-vuln*,http-enum,http-sql-injection "$target" | tee -a "$LOG_FILE"
+    
+    # Сохраняем сырые данные сканирования
+    local scan_file="$RESULTS_DIR/web_scan_${target}_$(date +'%s').txt"
+    sudo nmap -sV --script=http-vuln*,http-enum,http-sql-injection -oN "$scan_file" "$target"
+    
+    # Парсим результаты и добавляем в лог
+    parsed_results=$(grep -E 'CVE-|VULNERABLE' "$scan_file")
+    echo "$parsed_results" | tee -a "$LOG_FILE"
+    
+    # Сохраняем сырые данные для отчета
+    RAW_SCAN_DATA+=$'\n'"=== WEB VULN SCAN $target ==="$'\n'
+    RAW_SCAN_DATA+=$(cat "$scan_file")
 }
 
 os_vulnerability_scan() {
     local target=$1
     log "${BLUE}[*] Scanning $target for OS vulnerabilities...${NC}"
-    sudo nmap -sV --script=vulners,exploit "$target" | tee -a "$LOG_FILE"
+    
+    # Сохраняем сырые данные сканирования
+    local scan_file="$RESULTS_DIR/os_scan_${target}_$(date +'%s').txt"
+    sudo nmap -sV --script=vulners --script-args mincvss=5.0 -oN "$scan_file" "$target"
+    
+    # Парсим результаты и добавляем в лог
+    parsed_results=$(grep -E 'CVE-|VULNERABLE' "$scan_file")
+    echo "$parsed_results" | tee -a "$LOG_FILE"
+    
+    # Сохраняем сырые данные для отчета
+    RAW_SCAN_DATA+=$'\n'"=== OS VULN SCAN $target ==="$'\n'
+    RAW_SCAN_DATA+=$(cat "$scan_file")
 }
 
 find_web_servers() {
@@ -249,19 +274,53 @@ generate_report() {
     log "${BLUE}[*] Generating HTML report from scan data...${NC}"
 
     # Parse the log file to extract different sections
-    local live_hosts=$(grep -A 20 "Scanning network .* for live hosts" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
-    local port_scans=$(grep -A 50 "Performing .* port scan on" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
-    local web_servers=$(grep -A 30 "Scanning for web servers" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
-    local db_servers=$(grep -A 30 "Scanning for database servers" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
-    local vulnerabilities=$(grep -A 100 "Scanning .* for vulnerabilities" "$LOG_FILE" | grep -E "VULNERABLE|CVE-|exploit")
-    local wireless=$(grep -A 30 "Scanning for available wireless connections" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
+    local live_hosts=$(grep -a -A 20 "Scanning network .* for live hosts" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
+    local port_scans=$(grep -a -A 50 "Performing .* port scan on" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
+    local web_servers=$(grep -a -A 30 "Scanning for web servers" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
+    local db_servers=$(grep -a -A 30 "Scanning for database servers" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
+    local vulnerabilities=$(echo "$RAW_SCAN_DATA" | grep -E 'CVE-|VULNERABLE')
+    local wireless=$(grep -a -A 30 "Scanning for available wireless connections" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
 
-    echo "<!DOCTYPE html>
-<html lang=\"en\">
+    # Create temporary file for CVE table
+    local cve_temp_file=$(mktemp)
+    
+    # Extract CVE data for structured table
+    echo "$RAW_SCAN_DATA" | grep -E -o 'CVE-[0-9]{4}-[0-9]+' | sort | uniq | while read -r cve; do
+        # Extract service
+        service=$(echo "$RAW_SCAN_DATA" | grep -B 10 "$cve" | grep "PORT" | head -1 | awk '{print $3}')
+        [ -z "$service" ] && service="Unknown"
+        
+        # Extract severity
+        severity=$(echo "$RAW_SCAN_DATA" | grep -A 5 "$cve" | grep "CVSS:" | head -1 | awk '{print $2}')
+        [ -z "$severity" ] && severity="N/A"
+        
+        # Extract description
+        description=$(echo "$RAW_SCAN_DATA" | grep -A 2 "$cve" | grep "Описание:" | head -1 | cut -d: -f2- | sed 's/^ *//')
+        [ -z "$description" ] && description="No description available"
+        
+        # Append to temporary file
+        echo "<tr>" >> "$cve_temp_file"
+        echo "<td><a href='https://nvd.nist.gov/vuln/detail/$cve' target='_blank'>$cve</a></td>" >> "$cve_temp_file"
+        echo "<td>$severity</td>" >> "$cve_temp_file"
+        echo "<td>$service</td>" >> "$cve_temp_file"
+        echo "<td>$description</td>" >> "$cve_temp_file"
+        echo "</tr>" >> "$cve_temp_file"
+    done
+
+    # Read CVE table from temporary file
+    local cve_table=$(cat "$cve_temp_file")
+    rm -f "$cve_temp_file"
+
+    # Count vulnerabilities
+    local vuln_count=$(echo "$cve_table" | grep -c '<tr>')
+
+    cat > "$report_file" <<EOF
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>Отчет о проверке сети</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Security Report</title>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -442,14 +501,205 @@ generate_report() {
         .expandable.active .expandable-content {
             display: block;
         }
+        
+        /* Vulnerability table styles */
+        .vuln-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .vuln-table th {
+            background-color: #2c3e50;
+            color: white;
+            padding: 12px 15px;
+            text-align: left;
+        }
+        
+        .vuln-table td {
+            padding: 10px 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .vuln-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .vuln-table tr:hover {
+            background-color: #e9f7fe;
+        }
+        
+        .critical { background-color: #ffdddd; }
+        .high { background-color: #ffe8cc; }
+        .medium { background-color: #fff3cd; }
+        .low { background-color: #d4edda; }
+        
+        .severity-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .severity-critical { background-color: #dc3545; }
+        .severity-high { background-color: #fd7e14; }
+        .severity-medium { background-color: #ffc107; color: #333; }
+        .severity-low { background-color: #28a745; }
+        
+        .cve-link {
+            color: #0d6efd;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .cve-link:hover {
+            text-decoration: underline;
+        }
+        
+        .vuln-summary {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .vuln-summary-item {
+            display: inline-block;
+            margin-right: 20px;
+            font-weight: 600;
+        }
 
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .summary-box {
                 grid-template-columns: 1fr;
             }
+            
+            .vuln-table {
+                font-size: 14px;
+            }
         }
     </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Отчет о проверке сети</h1>
+            <p>Generated on $(date +'%Y-%m-%d %H:%M:%S')</p>
+        </div>
+
+        <div class="summary-box">
+            <div class="summary-item">
+                <h3>IP-адрес хоста</h3>
+                <p>$(get_host_ip)</p>
+            </div>
+            <div class="summary-item">
+                <h3>Сеть</h3>
+                <p>$(calculate_network "$(get_host_ip)")</p>
+            </div>
+            <div class="summary-item">
+                <h3>Шлюз по умолчанию</h3>
+                <p>$(get_default_gateway)</p>
+            </div>
+        </div>
+
+        <!-- Раздел активных узлов -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Активные узлы</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$live_hosts</pre>
+            </div>
+        </div>
+
+        <!-- Раздел сканирования портов -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Результаты сканирования портов</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$port_scans</pre>
+            </div>
+        </div>
+
+        <!-- Раздел веб-серверов -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Веб-серверы</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$web_servers</pre>
+            </div>
+        </div>
+
+        <!-- Раздел Серверы баз данных -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Серверы баз данных</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$db_servers</pre>
+            </div>
+        </div>
+
+        <!-- Раздел уязвимостей -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Уязвимости безопасности</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$vulnerabilities</pre>
+                
+                <div class="vuln-summary">
+                    <div class="vuln-summary-item">
+                        Всего уязвимостей: $vuln_count
+                    </div>
+                </div>
+                
+                <table class="vuln-table">
+                    <thead>
+                        <tr>
+                            <th>CVE ID</th>
+                            <th>Уровень риска</th>
+                            <th>Сервис</th>
+                            <th>Описание</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        $cve_table
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Раздел беспроводных подключений -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Беспроводные соединения</h2>
+            </div>
+            <div class="card-body">
+                <pre class="code-block">$wireless</pre>
+            </div>
+        </div>
+
+        <!-- Полный раздел журнала (Log) -->
+        <div class="card expandable">
+            <div class="card-header expandable-header">
+                <h2>Полный журнал сканирования</h2>
+                <span>Click to expand/collapse</span>
+            </div>
+            <div class="card-body expandable-content">
+                <pre class="code-block">$(cat "$LOG_FILE")</pre>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Generated by NetNinjaScan v1.0</p>
+        </div>
+    </div>
+    
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Toggle expandable sections
@@ -458,137 +708,44 @@ generate_report() {
                     this.parentElement.classList.toggle('active');
                 });
             });
-
-            // Filter table data
-            document.querySelectorAll('.filter-input').forEach(input => {
-                input.addEventListener('keyup', function() {
-                    const value = this.value.toLowerCase();
-                    const table = this.closest('.card').querySelector('table');
-
-                    table.querySelectorAll('tbody tr').forEach(row => {
-                        const text = row.textContent.toLowerCase();
-                        row.style.display = text.includes(value) ? '' : 'none';
-                    });
-                });
+            
+            // Add color coding to vulnerability table
+            document.querySelectorAll('.vuln-table tbody tr').forEach(row => {
+                const severityCell = row.cells[1];
+                const severity = severityCell.textContent.toLowerCase();
+                
+                if (severity.includes('critical') || severity.includes('9')) {
+                    row.classList.add('critical');
+                    severityCell.innerHTML = '<span class="severity-badge severity-critical">Critical</span>';
+                } else if (severity.includes('high') || severity.includes('7')) {
+                    row.classList.add('high');
+                    severityCell.innerHTML = '<span class="severity-badge severity-high">High</span>';
+                } else if (severity.includes('medium') || severity.includes('4')) {
+                    row.classList.add('medium');
+                    severityCell.innerHTML = '<span class="severity-badge severity-medium">Medium</span>';
+                } else if (severity.includes('low') || severity.includes('0')) {
+                    row.classList.add('low');
+                    severityCell.innerHTML = '<span class="severity-badge severity-low">Low</span>';
+                }
             });
         });
     </script>
-</head>
-<body>
-    <div class=\"container\">
-        <div class=\"header\">
-            <h1>Отчет о проверке сети</h1>
-            <p>Generated on $(date +'%Y-%m-%d %H:%M:%S')</p>
-        </div>
-
-        <div class=\"summary-box\">
-            <div class=\"summary-item\">
-                <h3>IP-адрес хоста</h3>
-                <p>$host_ip</p>
-            </div>
-            <div class=\"summary-item\">
-                <h3>Сеть</h3>
-                <p>$network</p>
-            </div>
-            <div class=\"summary-item\">
-                <h3>Шлюз по умолчанию</h3>
-                <p>$gateway</p>
-            </div>
-        </div>
-
-        <!-- Раздел активных узлов -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Активные узлы</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать хосты...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$live_hosts</pre>
-            </div>
-        </div>
-
-        <!-- Раздел сканирования портов -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Результаты сканирования портов</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать порты...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$port_scans</pre>
-            </div>
-        </div>
-
-        <!-- Раздел веб-серверов -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Веб-серверы</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать веб сервисы...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$web_servers</pre>
-            </div>
-        </div>
-
-        <!-- Раздел Серверы баз данных -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Серверы баз данных</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать сервисы БД...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$db_servers</pre>
-            </div>
-        </div>
-
-        <!-- Раздел уязвимостей -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Уязвимости</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать уязвимости...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$vulnerabilities</pre>
-            </div>
-        </div>
-
-        <!-- Раздел беспроводных подключений -->
-        <div class=\"card\">
-            <div class=\"card-header\">
-                <h2>Беспроводные соединения</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать беспроводные сети...\">
-            </div>
-            <div class=\"card-body\">
-                <pre class=\"code-block\">$wireless</pre>
-            </div>
-        </div>
-
-        <!-- Полный раздел журнала (Log) -->
-        <div class=\"card expandable\">
-            <div class=\"card-header expandable-header\">
-                <h2>Полный журнал сканирования</h2>
-                <span>Click to expand/collapse</span>
-            </div>
-            <div class=\"card-body expandable-content\">
-                <pre class=\"code-block\">$(cat "$LOG_FILE")</pre>
-            </div>
-        </div>
-
-        <div class=\"footer\">
-            <p>Generated by NetNinjaScan v1.0</p>
-        </div>
-    </div>
 </body>
-</html>" > "$report_file"
+</html>
+EOF
 
-    log "${GREEN}[+] Созданный улучшенный визуальный отчет: $report_file${NC}"
+    # Get absolute path for proper file URL
+    absolute_path=$(realpath "$report_file")
+    
+    log "${GREEN}[+] Созданный улучшенный визуальный отчет: $absolute_path${NC}"
 
-    # Try to open the report in the default browser if supported
+    # Try to open the report in the default browser with file:// scheme
     if command -v xdg-open &> /dev/null; then
-        xdg-open "$report_file" &> /dev/null &
+        xdg-open "file://$absolute_path" &> /dev/null &
     elif command -v open &> /dev/null; then
-        open "$report_file" &> /dev/null &
+        open "file://$absolute_path" &> /dev/null &
     else
-        log "${YELLOW}[!] Отчет создан, но не удалось открыть автоматически. Пожалуйста, откройте вручную: $report_file${NC}"
+        log "${YELLOW}[!] Отчет создан, но не удалось открыть автоматически. Пожалуйста, откройте вручную: file://$absolute_path${NC}"
     fi
 }
 
@@ -640,9 +797,7 @@ show_menu() {
     echo -en "${GREEN}Введите ваш выбор [1-15]: ${NC}"
 }
 
-# Main script execution
-clear_screen
-
+# Новая функция для настройки API ключей
 configure_api_keys() {
     echo -e "\n${YELLOW}=== Настройка API ключей ===${NC}"
     
@@ -684,6 +839,9 @@ configure_api_keys() {
         fi
     fi
 }
+
+# Main script execution
+clear_screen
 
 while true; do
     show_menu
@@ -752,4 +910,3 @@ while true; do
             ;;
     esac
 done
-       
