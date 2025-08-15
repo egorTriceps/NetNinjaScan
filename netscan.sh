@@ -286,16 +286,30 @@ generate_report() {
     
     # Extract CVE data for structured table
     echo "$RAW_SCAN_DATA" | grep -E -o 'CVE-[0-9]{4}-[0-9]+' | sort | uniq | while read -r cve; do
-        # Extract service
-        service=$(echo "$RAW_SCAN_DATA" | grep -B 10 "$cve" | grep "PORT" | head -1 | awk '{print $3}')
+        # Extract service - find the closest PORT line before the CVE
+        service=$(echo "$RAW_SCAN_DATA" | grep -B 15 "$cve" | grep -m1 "PORT" | awk '{print $3}')
         [ -z "$service" ] && service="Unknown"
         
-        # Extract severity
-        severity=$(echo "$RAW_SCAN_DATA" | grep -A 5 "$cve" | grep "CVSS:" | head -1 | awk '{print $2}')
+        # Extract severity - search for CVSS, severity or VULNERABLE in context
+        severity=$(echo "$RAW_SCAN_DATA" | grep -A 10 "$cve" | grep -m1 -E "CVSS:|severity|VULNERABLE" | awk '{print $NF}')
+        
+        # If severity is a number, convert to text
+        if [[ "$severity" =~ ^[0-9.]+$ ]]; then
+            if (( $(echo "$severity >= 9.0" | bc -l) )); then
+                severity="CRITICAL"
+            elif (( $(echo "$severity >= 7.0" | bc -l) )); then
+                severity="HIGH"
+            elif (( $(echo "$severity >= 4.0" | bc -l) )); then
+                severity="MEDIUM"
+            else
+                severity="LOW"
+            fi
+        fi
+        
         [ -z "$severity" ] && severity="N/A"
         
-        # Extract description
-        description=$(echo "$RAW_SCAN_DATA" | grep -A 2 "$cve" | grep "Описание:" | head -1 | cut -d: -f2- | sed 's/^ *//')
+        # Extract description - find the first Description after CVE
+        description=$(echo "$RAW_SCAN_DATA" | grep -A 5 "$cve" | grep -m1 "Description:" | cut -d: -f2- | sed 's/^ *//')
         [ -z "$description" ] && description="No description available"
         
         # Append to temporary file
