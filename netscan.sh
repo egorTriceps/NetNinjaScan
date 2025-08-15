@@ -88,10 +88,124 @@ port_scan() {
     esac
 }
 
+# Конфигурация API
+NVD_API_KEY="cac68a66-ff81-4ca9-89f1-ffef20a42cbc"
+VULNERS_API_KEY="85O32CP843SA2W7780SXPI3SCV9NZOO5CVJZ6I8GIMYE2IIAY8EXMAYTHTE7I6UV"
+MITRE_API_URL="https://cveawg.mitre.org/api/cve/"
+
+# Функция для получения информации об уязвимости из NVD
+get_nvd_vulnerability_info() {
+    local cve_id=$1
+    local api_url="https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=$cve_id"
+    
+    if [ -n "$NVD_API_KEY" ]; then
+        response=$(curl -s -H "apiKey: $NVD_API_KEY" "$api_url")
+    else
+        response=$(curl -s "$api_url")
+    fi
+    
+    if [ -z "$response" ]; then
+        echo "NVD: Не удалось получить информацию для $cve_id"
+        return
+    fi
+    
+    description=$(echo "$response" | jq -r '.vulnerabilities[0].cve.descriptions[0].value')
+    published=$(echo "$response" | jq -r '.vulnerabilities[0].cve.published')
+    severity=$(echo "$response" | jq -r '.vulnerabilities[0].cve.metrics.cvssMetricV31[0].cvssData.baseSeverity // "N/A"')
+    score=$(echo "$response" | jq -r '.vulnerabilities[0].cve.metrics.cvssMetricV31[0].cvssData.baseScore // "N/A"')
+    
+    echo -e "=== NVD ===\nОписание: $description\nОпубликовано: $published\nУровень опасности: $severity\nCVSS: $score"
+}
+
+# Функция для получения информации об уязвимости из Vulners
+get_vulners_vulnerability_info() {
+    local cve_id=$1
+    local api_url="https://vulners.com/api/v3/search/id/"
+    
+    if [ -z "$VULNERS_API_KEY" ]; then
+        echo "Vulners: Требуется API ключ"
+        return
+    fi
+    
+    response=$(curl -s -X POST "$api_url" \
+        -H "Content-Type: application/json" \
+        -H "X-Vulners-Api-Key: $VULNERS_API_KEY" \
+        -d "{\"id\": \"$cve_id\"}")
+    
+    if [ -z "$response" ]; then
+        echo "Vulners: Не удалось получить информацию для $cve_id"
+        return
+    fi
+    
+    description=$(echo "$response" | jq -r '.data.documents[].description')
+    published=$(echo "$response" | jq -r '.data.documents[].published')
+    severity=$(echo "$response" | jq -r '.data.documents[].cvss.severity // "N/A"')
+    score=$(echo "$response" | jq -r '.data.documents[].cvss.score // "N/A"')
+    exploit_count=$(echo "$response" | jq -r '.data.documents[].exploitCount // 0')
+    
+    echo -e "=== Vulners ===\nОписание: $description\nОпубликовано: $published\nУровень опасности: $severity\nCVSS: $score\nЭксплойты: $exploit_count"
+}
+
+# Функция для получения информации об уязвимости из MITRE
+get_mitre_vulnerability_info() {
+    local cve_id=$1
+    local api_url="${MITRE_API_URL}${cve_id}"
+    
+    response=$(curl -s "$api_url")
+    
+    if [ -z "$response" ]; then
+        echo "MITRE: Не удалось получить информацию для $cve_id"
+        return
+    fi
+    
+    description=$(echo "$response" | jq -r '.containers.cna.descriptions[0].value')
+    published=$(echo "$response" | jq -r '.cveMetadata.datePublished')
+    severity=$(echo "$response" | jq -r '.containers.cna.metrics[].cvssV3_1.baseSeverity // "N/A"')
+    score=$(echo "$response" | jq -r '.containers.cna.metrics[].cvssV3_1.baseScore // "N/A"')
+    
+    echo -e "=== MITRE ===\nОписание: $description\nОпубликовано: $published\nУровень опасности: $severity\nCVSS: $score"
+}
+
+# Модифицированная функция сканирования уязвимостей
 vulnerability_scan() {
     local target=$1
     log "${BLUE}[*] Scanning $target for vulnerabilities...${NC}"
-    sudo nmap -sV --script=vuln "$target" | tee -a "$LOG_FILE"
+    
+    # Выполняем сканирование
+    scan_results=$(sudo nmap -sV --script=vuln "$target")
+    echo "$scan_results" | tee -a "$LOG_FILE"
+    
+    # Извлекаем CVE ID из результатов
+    cve_list=$(echo "$scan_results" | grep -Eo 'CVE-[0-9]{4}-[0-9]+' | sort | uniq)
+    
+    if [ -z "$cve_list" ]; then
+        log "${YELLOW}[!] CVE не обнаружены${NC}"
+        return
+    fi
+    
+    log "${GREEN}[+] Обнаружены CVE:${NC}"
+    echo "$cve_list"
+    
+    # Получаем информацию об уязвимостях
+    for cve in $cve_list; do
+        log "${CYAN}[*] Получение информации для $cve${NC}"
+        get_nvd_vulnerability_info "$cve"
+        get_vulners_vulnerability_info "$cve"
+        get_mitre_vulnerability_info "$cve"
+        echo "----------------------------------------"
+    done | tee -a "$LOG_FILE"
+}
+
+web_vulnerability_scan() {
+    local target=$1
+    log "${BLUE}[*] Scanning $target for web vulnerabilities...${NC}"
+    sudo nmap -sV --script=http-vuln*,http-enum,http-sql-injection "$target" | tee -a "$LOG_FILE"
+}
+
+os_vulnerability_scan() {
+    local target=$1
+    log "${BLUE}[*] Scanning $target for OS vulnerabilities...${NC}"
+    sudo nmap -sV --script=vulners,exploit "$target" | tee -a "$LOG_FILE"
 }
 
 find_web_servers() {
@@ -492,37 +606,84 @@ clear_screen() {
     log "${GREEN}Результаты сканирования будут сохранены в: ${NC}$RESULTS_DIR"
 }
 
-
 show_menu() {
     echo -e "\n${YELLOW}Выберите нужный вариант:${NC}"
     echo -e "${CYAN}=== Обнаружение сети ===${NC}"
     echo -e "1. Поиск активных узлов в сети"
-    echo -e "2. Выполните детальное обнаружение сетевого устройства"
+    echo -e "2. Детальное обнаружение сетевых устройств"
 
     echo -e "\n${CYAN}=== Сканирование портов ===${NC}"
-    echo -e "3. Выполните быструю проверку портов на определенном хосте"
-    echo -e "4. Выполните стандартную проверку портов на определенном хосте"
-    echo -e "5. Выполните полное сканирование портов на определенном хосте"
+    echo -e "3. Быстрое сканирование портов"
+    echo -e "4. Стандартное сканирование портов"
+    echo -e "5. Полное сканирование портов"
 
-    echo -e "\n${CYAN}=== Обнаружение служб ===${NC}"
-    echo -e "6. Поиск веб-серверов в сети"
-    echo -e "7. Поиск серверов баз данных в сети"
-    echo -e "8. Поиск уязвимостей на определенном хосте"
+    echo -e "\n${CYAN}=== Обнаружение сервисов ===${NC}"
+    echo -e "6. Поиск веб-серверов"
+    echo -e "7. Поиск серверов баз данных"
+    echo -e "8. Сканирование общих уязвимостей"
+    echo -e "9. Сканирование веб-уязвимостей"
+    echo -e "10. Сканирование уязвимостей ОС"
 
-    echo -e "\n${CYAN}=== Беспроводной ===${NC}"
-    echo -e "9. Поиск доступных беспроводных подключений"
+    echo -e "\n${CYAN}=== Беспроводные сети ===${NC}"
+    echo -e "11. Поиск беспроводных подключений"
 
-    echo -e "\n${CYAN}=== Дополнения ===${NC}"
-    echo -e "10. Создание HTML-отчета на основе данных сканирования"
-    echo -e "11. Очистите экран"
-    echo -e "12. Выход"
+    echo -e "\n${CYAN}=== Управление уязвимостями ===${NC}"
+    echo -e "12. Настройка API ключей"
+    
+    echo -e "\n${CYAN}=== Отчеты ===${NC}"
+    echo -e "13. Генерация HTML отчета"
+    
+    echo -e "\n${CYAN}=== Система ===${NC}"
+    echo -e "14. Очистка экрана"
+    echo -e "15. Выход"
 
-    echo -en "${GREEN}Введите свой выбор [1-12]: ${NC}"
+    echo -en "${GREEN}Введите ваш выбор [1-15]: ${NC}"
 }
 
 # Main script execution
 clear_screen
 
+configure_api_keys() {
+    echo -e "\n${YELLOW}=== Настройка API ключей ===${NC}"
+    
+    if [ -z "$NVD_API_KEY" ]; then
+        echo -n "Введите NVD API ключ (или нажмите Enter чтобы пропустить): "
+        read -r key
+        if [ -n "$key" ]; then
+            NVD_API_KEY=$key
+            echo "NVD API ключ сохранен"
+        fi
+    else
+        echo "Текущий NVD API ключ: ${NVD_API_KEY:0:4}****${NVD_API_KEY: -4}"
+        echo -n "Хотите изменить? [y/N]: "
+        read -r change
+        if [[ "$change" =~ ^[Yy]$ ]]; then
+            echo -n "Введите новый NVD API ключ: "
+            read -r new_key
+            NVD_API_KEY=$new_key
+            echo "NVD API ключ обновлен"
+        fi
+    fi
+    
+    if [ -z "$VULNERS_API_KEY" ]; then
+        echo -n "Введите Vulners API ключ (или нажмите Enter чтобы пропустить): "
+        read -r key
+        if [ -n "$key" ]; then
+            VULNERS_API_KEY=$key
+            echo "Vulners API ключ сохранен"
+        fi
+    else
+        echo "Текущий Vulners API ключ: ${VULNERS_API_KEY:0:4}****${VULNERS_API_KEY: -4}"
+        echo -n "Хотите изменить? [y/N]: "
+        read -r change
+        if [[ "$change" =~ ^[Yy]$ ]]; then
+            echo -n "Введите новый Vulners API ключ: "
+            read -r new_key
+            VULNERS_API_KEY=$new_key
+            echo "Vulners API ключ обновлен"
+        fi
+    fi
+}
 
 while true; do
     show_menu
@@ -535,17 +696,17 @@ while true; do
             network_device_discovery "$network"
             ;;
         3)
-            echo -en "${GREEN}Введите IP-адрес целевого хоста для быстрого сканирования портов: ${NC}"
+            echo -en "${GREEN}Введите целевой IP для быстрого сканирования: ${NC}"
             read -r target
             port_scan "$target" "quick"
             ;;
         4)
-            echo -en "${GREEN}Введите IP-адрес целевого хоста для стандартной проверки портов: ${NC}"
+            echo -en "${GREEN}Введите целевой IP для стандартного сканирования: ${NC}"
             read -r target
             port_scan "$target" "standard"
             ;;
         5)
-            echo -en "${GREEN}Введите IP-адрес целевого хоста для полной проверки портов: ${NC}"
+            echo -en "${GREEN}Введите целевой IP для полного сканирования: ${NC}"
             read -r target
             port_scan "$target" "full"
             ;;
@@ -556,25 +717,39 @@ while true; do
             find_databases "$network"
             ;;
         8)
-            echo -en "${GREEN}Введите IP-адрес целевого хоста для проверки на уязвимости: ${NC}"
+            echo -en "${GREEN}Введите целевой IP для сканирования уязвимостей: ${NC}"
             read -r target
             vulnerability_scan "$target"
             ;;
         9)
-            find_wireless_connections
+            echo -en "${GREEN}Введите целевой IP для сканирования веб-уязвимостей: ${NC}"
+            read -r target
+            web_vulnerability_scan "$target"
             ;;
         10)
-            generate_report
+            echo -en "${GREEN}Введите целевой IP для сканирования уязвимостей ОС: ${NC}"
+            read -r target
+            os_vulnerability_scan "$target"
             ;;
         11)
-            clear_screen
+            find_wireless_connections
             ;;
         12)
+            configure_api_keys
+            ;;
+        13)
+            generate_report
+            ;;
+        14)
+            clear_screen
+            ;;
+        15)
             log "${YELLOW}Увидимся. Хорошего дня!${NC}"
             exit 0
             ;;
         *)
-            echo -e "${RED}Неверный вариант. Пожалуйста, выберите от 1 до 12.${NC}"
+            echo -e "${RED}Неверный вариант. Пожалуйста, выберите от 1 до 15.${NC}"
             ;;
     esac
 done
+       
