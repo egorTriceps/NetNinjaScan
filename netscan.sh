@@ -64,7 +64,7 @@ calculate_network() {
 
 scan_network() {
     local network=$1
-    log "${BLUE}[*] Сканирование сети $network для живых хостов...${NC}"
+    log "${BLUE}[*] Scanning network $network for live hosts...${NC}"
     nmap -sn "$network" | tee -a "$LOG_FILE"
 }
 
@@ -74,15 +74,15 @@ port_scan() {
 
     case $scan_type in
         "quick")
-            log "${BLUE}[*] Выполнение быстрого сканирования портов на $target...${NC}"
+            log "${BLUE}[*] Performing quick port scan on $target...${NC}"
             nmap -T4 --top-ports 100 "$target" | tee -a "$LOG_FILE"
             ;;
         "full")
-            log "${BLUE}[*] Выполнение полной проверки портов на $target...${NC}"
+            log "${BLUE}[*] Performing full port scan on $target...${NC}"
             sudo nmap -sS -sV -O -p- "$target" | tee -a "$LOG_FILE"
             ;;
         *)
-            log "${BLUE}[*] Выполнение стандартного сканирования портов на $target...${NC}"
+            log "${BLUE}[*] Performing standard port scan on $target...${NC}"
             sudo nmap -sS -sV -O "$target" | tee -a "$LOG_FILE"
             ;;
     esac
@@ -90,57 +90,57 @@ port_scan() {
 
 vulnerability_scan() {
     local target=$1
-    log "${BLUE}[*] Сканирование $target на предмет уязвимостей...${NC}"
+    log "${BLUE}[*] Scanning $target for vulnerabilities...${NC}"
     sudo nmap -sV --script=vuln "$target" | tee -a "$LOG_FILE"
 }
 
 find_web_servers() {
     local network=$1
-    log "${BLUE}[*] Поиск веб-серверов в сети...${NC}"
+    log "${BLUE}[*] Scanning for web servers on the network...${NC}"
     nmap --open -p 80,443,8080,8443 "$network" | tee -a "$LOG_FILE"
 }
 
 find_databases() {
     local network=$1
-    log "${BLUE}[*] Поиск серверов баз данных в сети...${NC}"
+    log "${BLUE}[*] Scanning for database servers on the network...${NC}"
     nmap --open -p 1433,3306,5432,27017,6379,9200 "$network" | tee -a "$LOG_FILE"
 }
 
 find_wireless_connections() {
-    log "${BLUE}[*] Поиск доступных беспроводных подключений...${NC}"
+    log "${BLUE}[*] Scanning for available wireless connections...${NC}"
     if command -v nmcli &> /dev/null; then
-        log "Использование nmcli для беспроводного сканирования."
+        log "Using nmcli for wireless scan."
         sudo nmcli dev wifi list | tee -a "$LOG_FILE"
     elif command -v iwlist &> /dev/null; then
         interface=$(iwconfig 2>/dev/null | grep 'ESSID' | awk '{print $1}')
         if [ -n "$interface" ]; then
-            log "Использование iwlist в интерфейсе $interface"
+            log "Using iwlist on interface $interface"
             sudo iwlist "$interface" scan | grep -E 'ESSID|Signal|Quality|Channel' | tee -a "$LOG_FILE"
         else
-            log "${RED}[!] Беспроводной интерфейс не найден. Убедитесь, что включен Wi-Fi.${NC}"
+            log "${RED}[!] No wireless interface found. Ensure WiFi is enabled.${NC}"
         fi
     else
-        log "${RED}[!] Не найдено подходящего инструмента для поиска беспроводных сетей.${NC}"
+        log "${RED}[!] No suitable tool found to scan for wireless networks.${NC}"
     fi
 }
 
 network_device_discovery() {
     local network=$1
-    log "${BLUE}[*] Выполнение обнаружения сетевого устройства на $network...${NC}"
+    log "${BLUE}[*] Performing network device discovery on $network...${NC}"
     sudo nmap -sn -PR -PE -PA21,22,23,80,443,3389 "$network" | tee -a "$LOG_FILE"
 }
 
 generate_report() {
     local report_file="$WEB_RESULT/network_report_$(date +'%Y%m%d_%H%M%S').html"
-    log "${BLUE}[*] Создание HTML-отчета на основе данных сканирования...${NC}"
+    log "${BLUE}[*] Generating HTML report from scan data...${NC}"
 
     # Parse the log file to extract different sections
-    local live_hosts=$(grep -A 20 "Сканирование сети.* на наличие активных узлов" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
-    local port_scans=$(grep -A 50 "Выполнение .* сканирование портов на" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
-    local web_servers=$(grep -A 30 "Поиск веб-серверов" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
-    local db_servers=$(grep -A 30 "Поиск серверов баз данных" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
-    local vulnerabilities=$(grep -A 100 "Сканирование .* на наличие уязвимостей" "$LOG_FILE" | grep -E "VULNERABLE|CVE-|exploit")
-    local wireless=$(grep -A 30 "Поиск доступных беспроводных подключений" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
+    local live_hosts=$(grep -A 20 "Scanning network .* for live hosts" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
+    local port_scans=$(grep -A 50 "Performing .* port scan on" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
+    local web_servers=$(grep -A 30 "Scanning for web servers" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
+    local db_servers=$(grep -A 30 "Scanning for database servers" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
+    local vulnerabilities=$(grep -A 100 "Scanning .* for vulnerabilities" "$LOG_FILE" | grep -E "VULNERABLE|CVE-|exploit")
+    local wireless=$(grep -A 30 "Scanning for available wireless connections" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
 
     echo "<!DOCTYPE html>
 <html lang=\"en\">
@@ -369,15 +369,15 @@ generate_report() {
 
         <div class=\"summary-box\">
             <div class=\"summary-item\">
-                <h3>Host IP</h3>
+                <h3>IP-адрес хоста</h3>
                 <p>$host_ip</p>
             </div>
             <div class=\"summary-item\">
-                <h3>Network</h3>
+                <h3>Сеть</h3>
                 <p>$network</p>
             </div>
             <div class=\"summary-item\">
-                <h3>Default Gateway</h3>
+                <h3>Шлюз по умолчанию</h3>
                 <p>$gateway</p>
             </div>
         </div>
@@ -385,7 +385,7 @@ generate_report() {
         <!-- Раздел активных узлов -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Live Hosts</h2>
+                <h2>Активные узлы</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать хосты...\">
             </div>
             <div class=\"card-body\">
@@ -396,7 +396,7 @@ generate_report() {
         <!-- Раздел сканирования портов -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Port Scan Results</h2>
+                <h2>Результаты сканирования портов</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать порты...\">
             </div>
             <div class=\"card-body\">
@@ -407,7 +407,7 @@ generate_report() {
         <!-- Раздел веб-серверов -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Web Servers</h2>
+                <h2>Веб-серверы</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать веб сервисы...\">
             </div>
             <div class=\"card-body\">
@@ -418,7 +418,7 @@ generate_report() {
         <!-- Раздел Серверы баз данных -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Database Servers</h2>
+                <h2>Серверы баз данных</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать сервисы БД...\">
             </div>
             <div class=\"card-body\">
@@ -429,7 +429,7 @@ generate_report() {
         <!-- Раздел уязвимостей -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Vulnerabilities</h2>
+                <h2>Уязвимости</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать уязвимости...\">
             </div>
             <div class=\"card-body\">
@@ -440,7 +440,7 @@ generate_report() {
         <!-- Раздел беспроводных подключений -->
         <div class=\"card\">
             <div class=\"card-header\">
-                <h2>Wireless Connections</h2>
+                <h2>Беспроводные соединения</h2>
                 <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать беспроводные сети...\">
             </div>
             <div class=\"card-body\">
@@ -451,7 +451,7 @@ generate_report() {
         <!-- Полный раздел журнала (Log) -->
         <div class=\"card expandable\">
             <div class=\"card-header expandable-header\">
-                <h2>Full Scan Log</h2>
+                <h2>Полный журнал сканирования</h2>
                 <span>Click to expand/collapse</span>
             </div>
             <div class=\"card-body expandable-content\">
