@@ -64,7 +64,7 @@ calculate_network() {
 
 scan_network() {
     local network=$1
-    log "${BLUE}[*] Scanning network $network for live hosts...${NC}"
+    log "${BLUE}[*] Сканирование сети $network для живых хостов...${NC}"
     nmap -sn "$network" | tee -a "$LOG_FILE"
 }
 
@@ -74,15 +74,15 @@ port_scan() {
 
     case $scan_type in
         "quick")
-            log "${BLUE}[*] Performing quick port scan on $target...${NC}"
+            log "${BLUE}[*] Выполнение быстрого сканирования портов на $target...${NC}"
             nmap -T4 --top-ports 100 "$target" | tee -a "$LOG_FILE"
             ;;
         "full")
-            log "${BLUE}[*] Performing full port scan on $target...${NC}"
+            log "${BLUE}[*] Выполнение полной проверки портов на $target...${NC}"
             sudo nmap -sS -sV -O -p- "$target" | tee -a "$LOG_FILE"
             ;;
         *)
-            log "${BLUE}[*] Performing standard port scan on $target...${NC}"
+            log "${BLUE}[*] Выполнение стандартного сканирования портов на $target...${NC}"
             sudo nmap -sS -sV -O "$target" | tee -a "$LOG_FILE"
             ;;
     esac
@@ -90,64 +90,64 @@ port_scan() {
 
 vulnerability_scan() {
     local target=$1
-    log "${BLUE}[*] Scanning $target for vulnerabilities...${NC}"
+    log "${BLUE}[*] Сканирование $target на предмет уязвимостей...${NC}"
     sudo nmap -sV --script=vuln "$target" | tee -a "$LOG_FILE"
 }
 
 find_web_servers() {
     local network=$1
-    log "${BLUE}[*] Scanning for web servers on the network...${NC}"
+    log "${BLUE}[*] Поиск веб-серверов в сети...${NC}"
     nmap --open -p 80,443,8080,8443 "$network" | tee -a "$LOG_FILE"
 }
 
 find_databases() {
     local network=$1
-    log "${BLUE}[*] Scanning for database servers on the network...${NC}"
+    log "${BLUE}[*] Поиск серверов баз данных в сети...${NC}"
     nmap --open -p 1433,3306,5432,27017,6379,9200 "$network" | tee -a "$LOG_FILE"
 }
 
 find_wireless_connections() {
-    log "${BLUE}[*] Scanning for available wireless connections...${NC}"
+    log "${BLUE}[*] Поиск доступных беспроводных подключений...${NC}"
     if command -v nmcli &> /dev/null; then
-        log "Using nmcli for wireless scan."
+        log "Использование nmcli для беспроводного сканирования."
         sudo nmcli dev wifi list | tee -a "$LOG_FILE"
     elif command -v iwlist &> /dev/null; then
         interface=$(iwconfig 2>/dev/null | grep 'ESSID' | awk '{print $1}')
         if [ -n "$interface" ]; then
-            log "Using iwlist on interface $interface"
+            log "Использование iwlist в интерфейсе $interface"
             sudo iwlist "$interface" scan | grep -E 'ESSID|Signal|Quality|Channel' | tee -a "$LOG_FILE"
         else
-            log "${RED}[!] No wireless interface found. Ensure WiFi is enabled.${NC}"
+            log "${RED}[!] Беспроводной интерфейс не найден. Убедитесь, что включен Wi-Fi.${NC}"
         fi
     else
-        log "${RED}[!] No suitable tool found to scan for wireless networks.${NC}"
+        log "${RED}[!] Не найдено подходящего инструмента для поиска беспроводных сетей.${NC}"
     fi
 }
 
 network_device_discovery() {
     local network=$1
-    log "${BLUE}[*] Performing network device discovery on $network...${NC}"
+    log "${BLUE}[*] Выполнение обнаружения сетевого устройства на $network...${NC}"
     sudo nmap -sn -PR -PE -PA21,22,23,80,443,3389 "$network" | tee -a "$LOG_FILE"
 }
 
 generate_report() {
     local report_file="$WEB_RESULT/network_report_$(date +'%Y%m%d_%H%M%S').html"
-    log "${BLUE}[*] Generating HTML report from scan data...${NC}"
+    log "${BLUE}[*] Создание HTML-отчета на основе данных сканирования...${NC}"
 
     # Parse the log file to extract different sections
-    local live_hosts=$(grep -A 20 "Scanning network .* for live hosts" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
-    local port_scans=$(grep -A 50 "Performing .* port scan on" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
-    local web_servers=$(grep -A 30 "Scanning for web servers" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
-    local db_servers=$(grep -A 30 "Scanning for database servers" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
-    local vulnerabilities=$(grep -A 100 "Scanning .* for vulnerabilities" "$LOG_FILE" | grep -E "VULNERABLE|CVE-|exploit")
-    local wireless=$(grep -A 30 "Scanning for available wireless connections" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
+    local live_hosts=$(grep -A 20 "Сканирование сети.* на наличие активных узлов" "$LOG_FILE" | grep -E "Nmap scan report|Host is up" | sed 's/Nmap scan report for //')
+    local port_scans=$(grep -A 50 "Выполнение .* сканирование портов на" "$LOG_FILE" | grep -E "PORT|open|filtered|closed" | grep -v "Not shown")
+    local web_servers=$(grep -A 30 "Поиск веб-серверов" "$LOG_FILE" | grep -E "Nmap scan report|80/tcp|443/tcp|8080/tcp|8443/tcp")
+    local db_servers=$(grep -A 30 "Поиск серверов баз данных" "$LOG_FILE" | grep -E "Nmap scan report|1433/tcp|3306/tcp|5432/tcp|27017/tcp|6379/tcp|9200/tcp")
+    local vulnerabilities=$(grep -A 100 "Сканирование .* на наличие уязвимостей" "$LOG_FILE" | grep -E "VULNERABLE|CVE-|exploit")
+    local wireless=$(grep -A 30 "Поиск доступных беспроводных подключений" "$LOG_FILE" | grep -E "ESSID|Signal|Quality|Channel|SSID")
 
     echo "<!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>Network Scan Report</title>
+    <title>Отчет о проверке сети</title>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -363,7 +363,7 @@ generate_report() {
 <body>
     <div class=\"container\">
         <div class=\"header\">
-            <h1>Network Scan Report</h1>
+            <h1>Отчет о проверке сети</h1>
             <p>Generated on $(date +'%Y-%m-%d %H:%M:%S')</p>
         </div>
 
@@ -382,73 +382,73 @@ generate_report() {
             </div>
         </div>
 
-        <!-- Live Hosts Section -->
+        <!-- Раздел активных узлов -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Live Hosts</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter hosts...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать хосты...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$live_hosts</pre>
             </div>
         </div>
 
-        <!-- Port Scans Section -->
+        <!-- Раздел сканирования портов -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Port Scan Results</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter ports...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать порты...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$port_scans</pre>
             </div>
         </div>
 
-        <!-- Web Servers Section -->
+        <!-- Раздел веб-серверов -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Web Servers</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter web servers...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать веб сервисы...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$web_servers</pre>
             </div>
         </div>
 
-        <!-- Database Servers Section -->
+        <!-- Раздел Серверы баз данных -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Database Servers</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter database servers...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать сервисы БД...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$db_servers</pre>
             </div>
         </div>
 
-        <!-- Vulnerabilities Section -->
+        <!-- Раздел уязвимостей -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Vulnerabilities</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter vulnerabilities...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать уязвимости...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$vulnerabilities</pre>
             </div>
         </div>
 
-        <!-- Wireless Connections Section -->
+        <!-- Раздел беспроводных подключений -->
         <div class=\"card\">
             <div class=\"card-header\">
                 <h2>Wireless Connections</h2>
-                <input type=\"text\" class=\"filter-input\" placeholder=\"Filter wireless...\">
+                <input type=\"text\" class=\"filter-input\" placeholder=\"Фильтровать беспроводные сети...\">
             </div>
             <div class=\"card-body\">
                 <pre class=\"code-block\">$wireless</pre>
             </div>
         </div>
 
-        <!-- Full Log Section -->
+        <!-- Полный раздел журнала (Log) -->
         <div class=\"card expandable\">
             <div class=\"card-header expandable-header\">
                 <h2>Full Scan Log</h2>
@@ -466,7 +466,7 @@ generate_report() {
 </body>
 </html>" > "$report_file"
 
-    log "${GREEN}[+] Enhanced visual report generated: $report_file${NC}"
+    log "${GREEN}[+] Созданный улучшенный визуальный отчет: $report_file${NC}"
 
     # Try to open the report in the default browser if supported
     if command -v xdg-open &> /dev/null; then
@@ -474,7 +474,7 @@ generate_report() {
     elif command -v open &> /dev/null; then
         open "$report_file" &> /dev/null &
     else
-        log "${YELLOW}[!] Report created but could not open automatically. Please open manually: $report_file${NC}"
+        log "${YELLOW}[!] Отчет создан, но не удалось открыть автоматически. Пожалуйста, откройте вручную: $report_file${NC}"
     fi
 }
 
@@ -486,38 +486,38 @@ clear_screen() {
     gateway=$(get_default_gateway)
     network=$(calculate_network "$host_ip")
 
-    log "${GREEN}Host IP: ${NC}$host_ip"
-    log "${GREEN}Default Gateway: ${NC}$gateway"
-    log "${GREEN}Network: ${NC}$network"
-    log "${GREEN}Scan results will be stored in: ${NC}$RESULTS_DIR"
+    log "${GREEN}IP-адрес хоста: ${NC}$host_ip"
+    log "${GREEN}Шлюз по умолчанию: ${NC}$gateway"
+    log "${GREEN}Сеть: ${NC}$network"
+    log "${GREEN}Результаты сканирования будут сохранены в: ${NC}$RESULTS_DIR"
 }
 
 
 show_menu() {
-    echo -e "\n${YELLOW}Select an option:${NC}"
-    echo -e "${CYAN}=== Network Discovery ===${NC}"
-    echo -e "1. Scan for live hosts on the network"
-    echo -e "2. Perform a detailed network device discovery"
+    echo -e "\n${YELLOW}Выберите нужный вариант:${NC}"
+    echo -e "${CYAN}=== Обнаружение сети ===${NC}"
+    echo -e "1. Поиск активных узлов в сети"
+    echo -e "2. Выполните детальное обнаружение сетевого устройства"
 
-    echo -e "\n${CYAN}=== Port Scanning ===${NC}"
-    echo -e "3. Perform a quick port scan on a specific host"
-    echo -e "4. Perform a standard port scan on a specific host"
-    echo -e "5. Perform a full port scan on a specific host"
+    echo -e "\n${CYAN}=== Сканирование портов ===${NC}"
+    echo -e "3. Выполните быструю проверку портов на определенном хосте"
+    echo -e "4. Выполните стандартную проверку портов на определенном хосте"
+    echo -e "5. Выполните полное сканирование портов на определенном хосте"
 
-    echo -e "\n${CYAN}=== Service Discovery ===${NC}"
-    echo -e "6. Find web servers on the network"
-    echo -e "7. Find database servers on the network"
-    echo -e "8. Find vulnerabilities on a specific host"
+    echo -e "\n${CYAN}=== Обнаружение служб ===${NC}"
+    echo -e "6. Поиск веб-серверов в сети"
+    echo -e "7. Поиск серверов баз данных в сети"
+    echo -e "8. Поиск уязвимостей на определенном хосте"
 
-    echo -e "\n${CYAN}=== Wireless ===${NC}"
-    echo -e "9. Find available wireless connections"
+    echo -e "\n${CYAN}=== Беспроводной ===${NC}"
+    echo -e "9. Поиск доступных беспроводных подключений"
 
-    echo -e "\n${CYAN}=== Utilities ===${NC}"
-    echo -e "10. Generate HTML report from scan data"
-    echo -e "11. Clear the screen"
-    echo -e "12. Exit"
+    echo -e "\n${CYAN}=== Дополнения ===${NC}"
+    echo -e "10. Создание HTML-отчета на основе данных сканирования"
+    echo -e "11. Очистите экран"
+    echo -e "12. Выход"
 
-    echo -en "${GREEN}Enter your choice [1-12]: ${NC}"
+    echo -en "${GREEN}Введите свой выбор [1-12]: ${NC}"
 }
 
 # Main script execution
@@ -535,17 +535,17 @@ while true; do
             network_device_discovery "$network"
             ;;
         3)
-            echo -en "${GREEN}Enter target host IP for quick port scan: ${NC}"
+            echo -en "${GREEN}Введите IP-адрес целевого хоста для быстрого сканирования портов: ${NC}"
             read -r target
             port_scan "$target" "quick"
             ;;
         4)
-            echo -en "${GREEN}Enter target host IP for standard port scan: ${NC}"
+            echo -en "${GREEN}Введите IP-адрес целевого хоста для стандартной проверки портов: ${NC}"
             read -r target
             port_scan "$target" "standard"
             ;;
         5)
-            echo -en "${GREEN}Enter target host IP for full port scan: ${NC}"
+            echo -en "${GREEN}Введите IP-адрес целевого хоста для полной проверки портов: ${NC}"
             read -r target
             port_scan "$target" "full"
             ;;
@@ -556,7 +556,7 @@ while true; do
             find_databases "$network"
             ;;
         8)
-            echo -en "${GREEN}Enter target host IP for vulnerability scan: ${NC}"
+            echo -en "${GREEN}Введите IP-адрес целевого хоста для проверки на уязвимости: ${NC}"
             read -r target
             vulnerability_scan "$target"
             ;;
@@ -570,11 +570,11 @@ while true; do
             clear_screen
             ;;
         12)
-            log "${YELLOW}Exiting. Have a great day!${NC}"
+            log "${YELLOW}Увидимся. Хорошего дня!${NC}"
             exit 0
             ;;
         *)
-            echo -e "${RED}Invalid option. Please select between 1 and 12.${NC}"
+            echo -e "${RED}Неверный вариант. Пожалуйста, выберите от 1 до 12.${NC}"
             ;;
     esac
 done
