@@ -92,9 +92,9 @@ port_scan() {
 }
 
 # Конфигурация API
-NVD_API_KEY="cac68a66-ff81-4ca9-89f1-ffef20a42cbc"
-VULNERS_API_KEY="85O32CP843SA2W7780SXPI3SCV9NZOO5CVJZ6I8GIMYE2IIAY8EXMAYTHTE7I6UV"
-MITRE_API_URL="https://cveawg.mitre.org/api/cve/"
+NVD_API_KEY="KEY"
+VULNERS_API_KEY="KEY"
+MITRE_API_URL="KEY"
 
 # Функция для получения информации об уязвимости из NVD
 get_nvd_vulnerability_info() {
